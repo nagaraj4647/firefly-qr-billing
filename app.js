@@ -482,6 +482,7 @@ function handleImportFile(file) {
       pendingImport = res;
       $('confirmImport').onclick = function () {
         var n = importProducts(pendingImport.products, 'file:' + (file.name || 'catalog'));
+        var st = getSettings(); st.demo = false; save(LS.settings, st);
         pendingImport = null;
         $('importPreview').innerHTML = '<p class="small" style="color:#4ade80">Imported ' + n + ' products.</p>';
         refreshBanners(); toast(n + ' products imported');
