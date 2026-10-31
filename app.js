@@ -593,6 +593,35 @@ function bind() {
 
   $('loginBtn').onclick = doLogin;
   $('loginPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+  $('forgotLink').onclick = function () {
+    var email = $('loginEmail').value.trim();
+    if (!email) { toast('Type your email first, then tap Forgot password', true); return; }
+    if (!sb) { toast('Backend not loaded - check connection', true); return; }
+    sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }).then(function (r) {
+      if (r.error) toast('Reset failed: ' + r.error.message, true);
+      else toast('Reset email sent - open the link on THIS device');
+    });
+  };
+  $('resetSave').onclick = function () {
+    var p1 = $('resetPass1').value, p2 = $('resetPass2').value;
+    if (p1.length < 6) { toast('Password must be at least 6 characters', true); return; }
+    if (p1 !== p2) { toast('Passwords do not match', true); return; }
+    sb.auth.updateUser({ password: p1 }).then(function (r) {
+      if (r.error) { toast('Could not save: ' + r.error.message, true); return; }
+      toast('Password saved - sign in now');
+      $('resetBox').classList.add('hidden');
+      $('resetPass1').value = ''; $('resetPass2').value = '';
+    });
+  };
+  if (sb) {
+    sb.auth.onAuthStateChange(function (event) {
+      if (event === 'PASSWORD_RECOVERY') {
+        showScreen('screen-login'); renderLogin();
+        $('resetBox').classList.remove('hidden');
+        toast('Set your new password below');
+      }
+    });
+  }
   $('demoLink').onclick = function () {
     loadDemo();
     save(LS.session, { role: 'staff', fullName: 'Demo', demo: true, at: Date.now() });
