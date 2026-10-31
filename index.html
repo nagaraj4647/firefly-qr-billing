@@ -28,7 +28,14 @@
         <input id="loginPass" type="password" autocomplete="current-password" placeholder="Password">
         <button id="loginBtn" class="btn primary">Login</button>
         <p id="loginMsg" class="muted small"></p>
+        <button id="forgotLink" class="btn ghost small">Forgot password?</button>
         <button id="demoLink" class="btn ghost">Preview with demo products (no login)</button>
+        <div id="resetBox" class="hidden">
+          <p class="muted small">Set a new password (from your reset email link)</p>
+          <input id="resetPass1" type="password" autocomplete="new-password" placeholder="New password (min 6 chars)">
+          <input id="resetPass2" type="password" autocomplete="new-password" placeholder="Repeat new password">
+          <button id="resetSave" class="btn primary">Save new password</button>
+        </div>
       </div>
     </div>
   </section>
