@@ -180,7 +180,8 @@ function parseCatalogWorkbook(arrayBuffer) {
       for (j = 1; j < grid.length; j++) {
         var g = grid[j];
         if (normId(g[idIdx]) === '') continue;
-        rows.push({ id: g[idIdx], name: g[nameIdx], category: catIdx === -1 ? '' : String(g[catIdx]), pack: packIdx === -1 ? '' : String(g[packIdx]), origPaise: origIdx === -1 ? null : g[origIdx], sellPaise: g[sellIdx] });
+        var toPaise = function (v) { return (typeof v === 'number' && isFinite(v)) ? Math.round(v * 100) : v; };
+        rows.push({ id: g[idIdx], name: g[nameIdx], category: catIdx === -1 ? '' : String(g[catIdx]), pack: packIdx === -1 ? '' : String(g[packIdx]), origPaise: origIdx === -1 ? null : toPaise(g[origIdx]), sellPaise: toPaise(g[sellIdx]) });
       }
       wanted = rows; sheetName = sn;
       break;
@@ -299,8 +300,10 @@ function showScreen(id) {
 
 function refreshBanners() {
   var s = getSettings() || {}, hasCat = Object.keys(getProducts()).length > 0;
-  $('priceBanner').classList.toggle('hidden', !(hasCat && !s.demo && !s.pricesConfirmed));
-  $('demoBanner').classList.toggle('hidden', !s.demo);
+  var sess = sessInfo();
+  var inDemo = !!(sess && sess.demo);
+  $('priceBanner').classList.toggle('hidden', !(hasCat && sess && !inDemo && !s.pricesConfirmed));
+  $('demoBanner').classList.toggle('hidden', !inDemo);
 }
 
 /* ---------- login ---------- */
