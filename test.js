@@ -46,6 +46,11 @@
     ok('money parse 45.0 = 4500 paise', FF.parseMoneyToPaise(45.0) === 4500);
     // done
     log('---');
+    // 9. Supabase row <-> product mapping round trip
+    var row = FF.productToRow({ id: '438', name: 'Pipe Shot', category: 'Magic Pipes', pack: '1 Box', sellPaise: 34000, origPaise: 170000 });
+    ok('productToRow maps paise + text id', row.product_id === '438' && row.selling_price_paise === 34000 && row.pack_unit === '1 Box');
+    var back = FF.rowToProduct(row);
+    ok('rowToProduct round trip', back.id === '438' && back.sellPaise === 34000 && back.origPaise === 170000 && back.name === 'Pipe Shot');
     log('RESULT: ' + pass + ' passed, ' + fail + ' failed');
     document.title = fail === 0 ? 'FF-TESTS-PASS' : 'FF-TESTS-FAIL-' + fail;
     window.FF_TEST_RESULT = { pass: pass, fail: fail };
