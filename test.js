@@ -46,6 +46,12 @@
     ok('money parse 45.0 = 4500 paise', FF.parseMoneyToPaise(45.0) === 4500);
     // done
     log('---');
+    // 8b. numeric Excel cells are INR rupees -> paise (regression: real catalog import showed 1/100 prices)
+    var csv = 'Website serial,Website product ID,Category,Product name (as displayed),Pack / unit,Original price (INR),Selling price (INR)\n1,2,Single Sound,Kuruvi,1 PKT,45,9\n2,38,Pencil,Nayagara,1 Box,693,138.6';
+    var buf = new TextEncoder().encode(csv).buffer;
+    var parsed = FF.parseCatalogWorkbook(buf);
+    ok('numeric INR cell 9 -> 900 paise', parsed.products['2'] && parsed.products['2'].sellPaise === 900);
+    ok('fractional INR 138.6 -> 13860 paise', parsed.products['38'] && parsed.products['38'].sellPaise === 13860);
     // 9. Supabase row <-> product mapping round trip
     var row = FF.productToRow({ id: '438', name: 'Pipe Shot', category: 'Magic Pipes', pack: '1 Box', sellPaise: 34000, origPaise: 170000 });
     ok('productToRow maps paise + text id', row.product_id === '438' && row.selling_price_paise === 34000 && row.pack_unit === '1 Box');
