@@ -1,4 +1,4 @@
-const CACHE = 'ff-qr-v2';
+const CACHE = 'ff-qr-v3';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg'];
 const CDN = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
 self.addEventListener('install', (e) => {
