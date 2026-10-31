@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>Firefly QR Billing</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="priceBanner" class="banner hidden">Prices unconfirmed (29 Oct 2026 snapshot) - admin must confirm</div>
+  <div id="demoBanner" class="banner demo hidden">DEMO catalog loaded - import the real Excel to go live</div>
+
+  <!-- LOGIN -->
+  <section id="screen-login" class="screen">
+    <div class="login-box">
+      <div class="logo">&#128293;</div>
+      <h1>Firefly QR Billing</h1>
+      <p class="muted">Staff billing tool</p>
+      <div id="setupBox" class="hidden">
+        <h2>First time setup</h2>
+        <p class="muted">Create an Admin PIN for this device</p>
+        <input id="setupPin1" type="password" inputmode="numeric" maxlength="6" placeholder="Admin PIN (4-6 digits)">
+        <input id="setupPin2" type="password" inputmode="numeric" maxlength="6" placeholder="Repeat Admin PIN">
+        <button id="setupBtn" class="btn primary">Create</button>
+      </div>
+      <div id="loginBox" class="hidden">
+        <div id="staffList" class="staff-grid"></div>
+        <div id="pinRow" class="hidden">
+          <p id="pinWho" class="muted"></p>
+          <input id="loginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN">
+          <button id="loginBtn" class="btn primary">Login</button>
+        </div>
+        <button id="adminLink" class="btn ghost">Admin login</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCAN -->
+  <section id="screen-scan" class="screen hidden">
+    <div id="scanReaderWrap">
+      <div id="scanReader"></div>
+      <button id="startCamBtn" class="btn primary">Start camera</button>
+    </div>
+    <div class="manual-row">
+      <input id="manualId" inputmode="numeric" placeholder="Product ID (manual entry)">
+      <button id="manualGo" class="btn">Find</button>
+    </div>
+    <div id="noCatalog" class="notice hidden">
+      No product catalog on this device yet.<br>Admin &rarr; Import catalog Excel.
+      <br><button id="demoBtn1" class="btn small">Load demo products (for testing)</button>
+    </div>
+  </section>
+
+  <!-- BILL -->
+  <section id="screen-bill" class="screen hidden">
+    <div id="billMeta" class="muted small"></div>
+    <div id="billLines"></div>
+    <div id="billEmpty" class="notice">No items yet. Scan a product QR.</div>
+    <div id="billFooter" class="hidden">
+      <div class="total-row"><span>Total</span><span id="billTotal" class="total">&#8377;0</span></div>
+      <button id="clearBillBtn" class="btn danger">New bill (clear)</button>
+    </div>
+  </section>
+
+  <!-- CATALOG -->
+  <section id="screen-catalog" class="screen hidden">
+    <input id="catSearch" placeholder="Search name / category / ID">
+    <div id="catList"></div>
+  </section>
+
+  <!-- ADMIN -->
+  <section id="screen-admin" class="screen hidden">
+    <h2>Admin</h2>
+    <details open>
+      <summary>Import product catalog</summary>
+      <p class="muted small">Use Firefly_Product_Catalog_2026-10-29.xlsx (or a CSV export of it). Re-import replaces the catalog - no duplicates.</p>
+      <input id="importFile" type="file" accept=".xlsx,.xls,.csv">
+      <div id="importPreview"></div>
+    </details>
+    <details>
+      <summary>Demo catalog</summary>
+      <button id="demoBtn2" class="btn small">Load demo products</button>
+      <button id="demoClear" class="btn small danger">Clear demo</button>
+    </details>
+    <details>
+      <summary>Products</summary>
+      <input id="admSearch" placeholder="Search product">
+      <div id="admList"></div>
+      <h3>Add product</h3>
+      <input id="npId" placeholder="Product ID (unique)">
+      <input id="npName" placeholder="Name">
+      <input id="npCat" placeholder="Category">
+      <input id="npPack" placeholder="Pack / unit">
+      <input id="npOrig" inputmode="decimal" placeholder="Original price (Rs)">
+      <input id="npSell" inputmode="decimal" placeholder="Selling price (Rs)">
+      <button id="npAdd" class="btn">Add</button>
+    </details>
+    <details>
+      <summary>Staff</summary>
+      <div id="staffAdminList"></div>
+      <input id="nsName" placeholder="Staff name">
+      <input id="nsPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN (4-6 digits)">
+      <button id="nsAdd" class="btn">Add staff</button>
+    </details>
+    <details>
+      <summary>Prices confirmation</summary>
+      <p class="muted small">Catalog is the 29 Oct 2026 website snapshot. Confirm with the shop owner before real billing.</p>
+      <button id="priceConfirmBtn" class="btn"></button>
+    </details>
+    <details>
+      <summary>Admin PIN</summary>
+      <input id="apOld" type="password" inputmode="numeric" maxlength="6" placeholder="Current PIN">
+      <input id="apNew" type="password" inputmode="numeric" maxlength="6" placeholder="New PIN">
+      <button id="apChange" class="btn">Change PIN</button>
+    </details>
+    <details>
+      <summary>Danger zone</summary>
+      <button id="clearAllBtn" class="btn danger">Erase ALL data on this device</button>
+    </details>
+  </section>
+
+  <nav id="bottomNav" class="hidden">
+    <button data-screen="screen-scan" class="navBtn">Scan</button>
+    <button data-screen="screen-bill" class="navBtn">Bill <span id="billBadge" class="badge hidden">0</span></button>
+    <button data-screen="screen-catalog" class="navBtn">Catalog</button>
+    <button data-screen="screen-admin" class="navBtn">Admin</button>
+  </nav>
+  <button id="logoutBtn" class="btn ghost small hidden">Logout</button>
+
+  <!-- PRODUCT MODAL -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <div id="pmName" class="pm-name"></div>
+      <div id="pmMeta" class="muted small"></div>
+      <div id="pmPrices"></div>
+      <div class="qty-row">
+        <button id="qtyMinus" class="btn qty">-</button>
+        <input id="qtyInput" inputmode="numeric" value="1">
+        <button id="qtyPlus" class="btn qty">+</button>
+      </div>
+      <button id="pmAdd" class="btn primary big">Add to bill</button>
+      <button id="pmClose" class="btn ghost">Cancel</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+</div>
+<script src="html5-qrcode.min.js"></script>
+<script src="xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
