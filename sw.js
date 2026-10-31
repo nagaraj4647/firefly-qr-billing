@@ -1,6 +1,6 @@
-const CACHE = 'ff-qr-v1';
+const CACHE = 'ff-qr-v2';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg'];
-const CDN = ['cdnjs.cloudflare.com'];
+const CDN = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
