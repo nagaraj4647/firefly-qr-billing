@@ -22,21 +22,13 @@
       <div class="logo">&#128293;</div>
       <h1>Firefly QR Billing</h1>
       <p class="muted">Staff billing tool</p>
-      <div id="setupBox" class="hidden">
-        <h2>First time setup</h2>
-        <p class="muted">Create an Admin PIN for this device</p>
-        <input id="setupPin1" type="password" inputmode="numeric" maxlength="6" placeholder="Admin PIN (4-6 digits)">
-        <input id="setupPin2" type="password" inputmode="numeric" maxlength="6" placeholder="Repeat Admin PIN">
-        <button id="setupBtn" class="btn primary">Create</button>
-      </div>
-      <div id="loginBox" class="hidden">
-        <div id="staffList" class="staff-grid"></div>
-        <div id="pinRow" class="hidden">
-          <p id="pinWho" class="muted"></p>
-          <input id="loginPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN">
-          <button id="loginBtn" class="btn primary">Login</button>
-        </div>
-        <button id="adminLink" class="btn ghost">Admin login</button>
+      <div id="loginBox">
+        <p class="muted small">Sign in with your staff account</p>
+        <input id="loginEmail" type="email" autocomplete="username" placeholder="Email">
+        <input id="loginPass" type="password" autocomplete="current-password" placeholder="Password">
+        <button id="loginBtn" class="btn primary">Login</button>
+        <p id="loginMsg" class="muted small"></p>
+        <button id="demoLink" class="btn ghost">Preview with demo products (no login)</button>
       </div>
     </div>
   </section>
@@ -104,8 +96,10 @@
     <details>
       <summary>Staff</summary>
       <div id="staffAdminList"></div>
+      <p class="muted small">Create a login for each staff member. They can change their password after signing in.</p>
       <input id="nsName" placeholder="Staff name">
-      <input id="nsPin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN (4-6 digits)">
+      <input id="nsEmail" type="email" placeholder="Staff email">
+      <input id="nsPass" type="password" autocomplete="new-password" placeholder="Password (min 6 chars)">
       <button id="nsAdd" class="btn">Add staff</button>
     </details>
     <details>
@@ -114,14 +108,13 @@
       <button id="priceConfirmBtn" class="btn"></button>
     </details>
     <details>
-      <summary>Admin PIN</summary>
-      <input id="apOld" type="password" inputmode="numeric" maxlength="6" placeholder="Current PIN">
-      <input id="apNew" type="password" inputmode="numeric" maxlength="6" placeholder="New PIN">
-      <button id="apChange" class="btn">Change PIN</button>
+      <summary>My password</summary>
+      <input id="apNew" type="password" autocomplete="new-password" placeholder="New password (min 6 chars)">
+      <button id="apChange" class="btn">Change my password</button>
     </details>
     <details>
       <summary>Danger zone</summary>
-      <button id="clearAllBtn" class="btn danger">Erase ALL data on this device</button>
+      <button id="clearAllBtn" class="btn danger">Clear cached data on this device (cloud data stays)</button>
     </details>
   </section>
 
@@ -153,6 +146,7 @@
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.48.1/dist/umd/supabase.js" integrity="sha384-Tgoms7a53eyQOCcKXlBrA1X967mm3BHK43f3979dACl74tZlLW+O85pmfCuhfUtx" crossorigin="anonymous"></script>
 <script src="app.js"></script>
 </body>
 </html>
