@@ -7,6 +7,93 @@
 var LS = { settings: 'ff_settings', staff: 'ff_staff', products: 'ff_products', bill: 'ff_bill', session: 'ff_session' };
 var CATALOG_SNAPSHOT = '2026-10-29';
 
+/* ---------- Supabase backend ---------- */
+var FF_SUPA_URL = 'https://sycyaxqopzmsjuhrbjec.supabase.co';
+var FF_SUPA_KEY = 'sb_publishable_fNdqFQRTkguYSIRm6JCDRA_jfOniNum';
+var sb = null;
+if (typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function') {
+  try { sb = window.supabase.createClient(FF_SUPA_URL, FF_SUPA_KEY); } catch (e) { sb = null; }
+}
+function rowToProduct(r) {
+  return { id: String(r.product_id), name: r.name || '', category: r.category || '', pack: r.pack_unit || '',
+    sellPaise: r.selling_price_paise, origPaise: r.original_price_paise, active: true };
+}
+function productToRow(p) {
+  return { product_id: String(p.id), name: p.name, category: p.category || '', pack_unit: p.pack || '',
+    selling_price_paise: p.sellPaise, original_price_paise: p.origPaise, updated_at: new Date().toISOString() };
+}
+function sessInfo() { return load(LS.session, null); }
+function isDemoSession() { var s = sessInfo(); return !!(s && s.demo); }
+function isAdminSession() { var s = sessInfo(); return !!(s && s.role === 'admin'); }
+function fetchProfile(uid) {
+  return sb.from('profiles').select('id,email,role,full_name,is_active').eq('id', uid).single()
+    .then(function (r) { if (r.error) throw r.error; return r.data; });
+}
+function signInEmail(email, pass) {
+  if (!sb) return Promise.reject(new Error('Backend client failed to load (check connection)'));
+  return sb.auth.signInWithPassword({ email: email, password: pass }).then(function (r) {
+    if (r.error) throw r.error;
+    return fetchProfile(r.data.user.id).then(function (prof) {
+      if (prof.is_active === false) {
+        return sb.auth.signOut().then(function () { throw new Error('Account disabled - ask the admin'); });
+      }
+      save(LS.session, { uid: prof.id, email: prof.email, role: prof.role, fullName: prof.full_name, at: Date.now() });
+      return prof;
+    });
+  });
+}
+function signOutAll() {
+  localStorage.removeItem(LS.session);
+  if (sb) return sb.auth.signOut().catch(function () { });
+  return Promise.resolve();
+}
+function syncProducts() {
+  if (!sb || isDemoSession()) return Promise.resolve(0);
+  return sb.from('products').select('product_id,name,category,pack_unit,original_price_paise,selling_price_paise').then(function (r) {
+    if (r.error) throw r.error;
+    var prods = {};
+    (r.data || []).forEach(function (row) { var p = rowToProduct(row); prods[p.id] = p; });
+    save(LS.products, prods);
+    var s = getSettings() || {}; s.demo = false; save(LS.settings, s);
+    return (r.data || []).length;
+  });
+}
+function loadCatalogStatus() {
+  if (!sb || isDemoSession()) return Promise.resolve(null);
+  return sb.from('app_settings').select('value').eq('key', 'catalog_status').maybeSingle().then(function (r) {
+    if (r.error) return null;
+    var s = getSettings() || {};
+    s.cloudStatus = r.data && r.data.value ? r.data.value : null;
+    s.pricesConfirmed = !!(s.cloudStatus && s.cloudStatus.prices_unconfirmed === false);
+    save(LS.settings, s);
+    return s.cloudStatus;
+  }).catch(function () { return null; });
+}
+function writeCatalogStatus(patch) {
+  if (!sb || isDemoSession()) return Promise.resolve();
+  var cur = (getSettings() || {}).cloudStatus || {};
+  var next = Object.assign({}, cur, patch);
+  return sb.from('app_settings').upsert({ key: 'catalog_status', value: next, updated_at: new Date().toISOString() }).then(function (r) {
+    if (r.error) throw r.error;
+    var s = getSettings() || {};
+    s.cloudStatus = next;
+    s.pricesConfirmed = next.prices_unconfirmed === false;
+    save(LS.settings, s);
+  });
+}
+function cloudImportProducts(list) {
+  var rows = list.map(productToRow), i = 0;
+  function nextChunk() {
+    if (i >= rows.length) return Promise.resolve(rows.length);
+    var chunk = rows.slice(i, i + 100); i += 100;
+    return sb.from('products').upsert(chunk, { onConflict: 'product_id' }).then(function (r) {
+      if (r.error) throw r.error;
+      return nextChunk();
+    });
+  }
+  return nextChunk();
+}
+
 function load(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
 function save(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
@@ -179,7 +266,8 @@ window.FF = {
   demoProducts: demoProducts, loadDemo: loadDemo, clearDemo: clearDemo,
   addToBill: addToBill, setBillQty: setBillQty, clearBill: clearBill,
   getBill: getBill, billTotalPaise: billTotalPaise, billCount: billCount,
-  getSettings: getSettings, getStaff: getStaff
+  getSettings: getSettings, getStaff: getStaff,
+  rowToProduct: rowToProduct, productToRow: productToRow
 };
 
 /* ================= UI ================= */
@@ -217,54 +305,52 @@ function refreshBanners() {
 
 /* ---------- login ---------- */
 function renderLogin() {
-  var s = getSettings();
-  if (!s || !s.adminPinHash) { $('setupBox').classList.remove('hidden'); $('loginBox').classList.add('hidden'); return; }
-  $('setupBox').classList.add('hidden'); $('loginBox').classList.remove('hidden');
-  var list = $('staffList'); list.innerHTML = '';
-  var staff = getStaff().filter(function (x) { return x.active !== false; });
-  if (!staff.length) list.innerHTML = '<p class="muted">No staff yet. Login as Admin and add staff.</p>';
-  staff.forEach(function (st) {
-    var b = document.createElement('button');
-    b.className = 'btn'; b.textContent = st.name;
-    b.onclick = function () { askPin('staff', st); };
-    list.appendChild(b);
-  });
-  $('pinRow').classList.add('hidden');
-  loginTarget = null;
-}
-function askPin(kind, st) {
-  loginTarget = { kind: kind, staff: st };
-  $('pinRow').classList.remove('hidden');
-  $('pinWho').textContent = kind === 'admin' ? 'Admin PIN' : 'PIN for ' + st.name;
-  $('loginPin').value = ''; $('loginPin').focus();
+  $('loginEmail').value = ''; $('loginPass').value = ''; $('loginMsg').textContent = '';
 }
 function doLogin() {
-  var pin = $('loginPin').value.trim();
-  if (!loginTarget || !pin) return;
-  var s = getSettings();
-  var entry = loginTarget.kind === 'admin' ? { pinHash: s.adminPinHash } : loginTarget.staff;
-  hashPin(pin, s.salt).then(function (h) {
-    if (h !== entry.pinHash) { toast('Wrong PIN', true); return; }
-    save(LS.session, { staffId: loginTarget.kind === 'staff' ? loginTarget.staff.id : null, admin: loginTarget.kind === 'admin', at: Date.now() });
-    enterApp();
-    if (loginTarget.kind === 'admin') { adminUnlocked = true; showScreen('screen-admin'); }
-    toast('Welcome' + (loginTarget.kind === 'staff' ? ' ' + loginTarget.staff.name : ' Admin'));
+  var email = $('loginEmail').value.trim(), pass = $('loginPass').value;
+  if (!email || !pass) { toast('Email and password required', true); return; }
+  $('loginMsg').textContent = 'Signing in...';
+  signInEmail(email, pass).then(function (prof) {
+    $('loginMsg').textContent = '';
+    afterLogin('Welcome ' + (prof.full_name || prof.email));
+  }).catch(function (e) {
+    $('loginMsg').textContent = '';
+    toast('Login failed: ' + (e && e.message ? e.message : 'check email/password'), true);
+  });
+}
+function afterLogin(msg) {
+  enterApp();
+  toast(msg || 'Signed in');
+  syncProducts().then(function (n) {
+    if (n > 0) toast(n + ' products synced');
+    return loadCatalogStatus();
+  }).then(function () {
+    refreshBanners(); renderCatalog(); renderBill(); onEnterScan();
+  }).catch(function () {
+    toast('Catalog sync failed - using data cached on this device', true);
+    refreshBanners(); renderCatalog(); renderBill(); onEnterScan();
   });
 }
 function enterApp() {
   $('screen-login').classList.add('hidden');
   $('bottomNav').classList.remove('hidden');
   $('logoutBtn').classList.remove('hidden');
+  var navs = document.querySelectorAll('.navBtn');
+  for (var i = 0; i < navs.length; i++) {
+    if (navs[i].getAttribute('data-screen') === 'screen-admin') navs[i].classList.toggle('hidden', !isAdminSession() && !isDemoSession());
+  }
   refreshBanners();
   showScreen('screen-scan');
 }
 function logout() {
   stopScanner();
-  localStorage.removeItem(LS.session);
-  $('bottomNav').classList.add('hidden');
-  $('logoutBtn').classList.add('hidden');
-  showScreen('screen-login');
-  renderLogin();
+  signOutAll().then(function () {
+    $('bottomNav').classList.add('hidden');
+    $('logoutBtn').classList.add('hidden');
+    showScreen('screen-login');
+    renderLogin();
+  });
 }
 
 /* ---------- scanner ---------- */
@@ -331,8 +417,7 @@ function renderBill() {
   var b = getBill(), box = $('billLines');
   box.innerHTML = '';
   var sess = load(LS.session, {});
-  var staffName = '';
-  getStaff().forEach(function (s) { if (s.id === sess.staffId) staffName = s.name; });
+  var staffName = sess.fullName || '';
   $('billMeta').textContent = (staffName ? 'Staff: ' + staffName + ' | ' : '') + (b.startedAt ? 'Started ' + new Date(b.startedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '');
   $('billEmpty').classList.toggle('hidden', b.lines.length > 0);
   $('billFooter').classList.toggle('hidden', b.lines.length === 0);
@@ -382,17 +467,9 @@ function renderCatalog() {
 }
 
 /* ---------- admin ---------- */
-var adminUnlocked = false;
 function renderAdmin() {
+  if (!isAdminSession() && !isDemoSession()) { toast('Admin access only', true); showScreen('screen-scan'); return; }
   var s = getSettings() || {};
-  if (!adminUnlocked) {
-    var pin = prompt('Admin PIN');
-    hashPin(pin || '', s.salt || '').then(function (h) {
-      if (h === s.adminPinHash) { adminUnlocked = true; renderAdmin(); }
-      else { toast('Wrong admin PIN', true); showScreen('screen-scan'); }
-    });
-    return;
-  }
   renderStaffAdmin();
   var cb = $('priceConfirmBtn');
   cb.textContent = s.pricesConfirmed ? 'Prices confirmed \u2713 (tap to un-confirm)' : 'Mark prices confirmed';
@@ -429,36 +506,38 @@ function editProduct(p) {
   var prods = getProducts();
   prods[p.id] = Object.assign({}, p, { name: name.trim() || p.name, sellPaise: sp, origPaise: op, pack: pack.trim() });
   save(LS.products, prods);
+  if (sb && !isDemoSession()) {
+    sb.from('products').update({ name: prods[p.id].name, selling_price_paise: sp, original_price_paise: op, pack_unit: prods[p.id].pack, updated_at: new Date().toISOString() }).eq('product_id', p.id).then(function (r) {
+      if (r.error) toast('Cloud save failed: ' + r.error.message, true);
+    });
+  }
   toast('Saved ' + p.id);
   renderAdminProducts(); refreshBanners();
 }
 function renderStaffAdmin() {
   var list = $('staffAdminList'); list.innerHTML = '';
-  getStaff().forEach(function (st) {
-    var d = document.createElement('div');
-    d.className = 'staff-row';
-    d.innerHTML = '<span>' + esc(st.name) + (st.active === false ? ' <span class="muted small">(disabled)</span>' : '') + '</span>';
-    var wrap = document.createElement('span');
-    var rst = document.createElement('button'); rst.className = 'btn small'; rst.textContent = 'Reset PIN';
-    rst.onclick = function () {
-      var np = prompt('New PIN for ' + st.name + ' (4-6 digits)');
-      if (!np || !/^\d{4,6}$/.test(np)) { toast('PIN must be 4-6 digits', true); return; }
-      var s = getSettings();
-      hashPin(np, s.salt).then(function (h) {
-        var all = getStaff();
-        for (var i = 0; i < all.length; i++) if (all[i].id === st.id) all[i].pinHash = h;
-        save(LS.staff, all); toast('PIN reset');
-      });
-    };
-    var tog = document.createElement('button'); tog.className = 'btn small'; tog.textContent = st.active === false ? 'Enable' : 'Disable';
-    tog.onclick = function () {
-      var all = getStaff();
-      for (var i = 0; i < all.length; i++) if (all[i].id === st.id) all[i].active = (st.active === false);
-      save(LS.staff, all); renderStaffAdmin();
-    };
-    wrap.appendChild(rst); wrap.appendChild(tog);
-    d.appendChild(wrap);
-    list.appendChild(d);
+  if (!sb || isDemoSession() || !isAdminSession()) { list.innerHTML = '<p class="muted small">Staff accounts are managed by the admin (cloud).</p>'; return; }
+  var me = sessInfo();
+  list.innerHTML = '<p class="muted small">Loading...</p>';
+  sb.from('profiles').select('id,email,role,full_name,is_active').order('created_at').then(function (r) {
+    if (r.error) { list.innerHTML = '<p class="muted small">Could not load staff: ' + esc(r.error.message) + '</p>'; return; }
+    list.innerHTML = '';
+    (r.data || []).forEach(function (st) {
+      var d = document.createElement('div');
+      d.className = 'staff-row';
+      d.innerHTML = '<span>' + esc(st.full_name || st.email) + ' <span class="muted small">(' + esc(st.role) + ')</span>' + (st.is_active === false ? ' <span class="muted small">(disabled)</span>' : '') + '</span>';
+      if (!me || st.id !== me.uid) {
+        var tog = document.createElement('button'); tog.className = 'btn small'; tog.textContent = st.is_active === false ? 'Enable' : 'Disable';
+        tog.onclick = function () {
+          sb.from('profiles').update({ is_active: st.is_active === false, updated_at: new Date().toISOString() }).eq('id', st.id).then(function (rr) {
+            if (rr.error) { toast('Update failed: ' + rr.error.message, true); return; }
+            renderStaffAdmin();
+          });
+        };
+        d.appendChild(tog);
+      }
+      list.appendChild(d);
+    });
   });
 }
 
@@ -481,11 +560,23 @@ function handleImportFile(file) {
       pv.innerHTML = html;
       pendingImport = res;
       $('confirmImport').onclick = function () {
-        var n = importProducts(pendingImport.products, 'file:' + (file.name || 'catalog'));
-        var st = getSettings(); st.demo = false; save(LS.settings, st);
-        pendingImport = null;
-        $('importPreview').innerHTML = '<p class="small" style="color:#4ade80">Imported ' + n + ' products.</p>';
-        refreshBanners(); toast(n + ' products imported');
+        var toImport = pendingImport; pendingImport = null;
+        $('importPreview').innerHTML = '<p class="small">Importing...</p>';
+        var finish = function () {
+          var n = importProducts(toImport.products, 'file:' + (file.name || 'catalog'));
+          var st = getSettings(); st.demo = false; save(LS.settings, st);
+          $('importPreview').innerHTML = '<p class="small" style="color:#4ade80">Imported ' + n + ' products.</p>';
+          refreshBanners(); renderCatalog(); toast(n + ' products imported');
+        };
+        if (sb && !isDemoSession() && isAdminSession()) {
+          cloudImportProducts(toImport.products).then(function (n) {
+            return writeCatalogStatus({ total_products: n, prices_unconfirmed: true, confirmed_at: null, imported_at: new Date().toISOString() });
+          }).then(finish).catch(function (e) {
+            $('importPreview').innerHTML = '<p class="small" style="color:#f87171">Cloud import failed: ' + esc(e && e.message ? e.message : String(e)) + ' - catalog NOT imported. Check connection and retry.</p>';
+          });
+        } else {
+          finish();
+        }
       };
     } catch (e) {
       $('importPreview').innerHTML = '<p class="muted">Could not read file: ' + esc(String(e).slice(0, 120)) + '</p>';
@@ -500,22 +591,13 @@ function bind() {
   for (var i = 0; i < navs.length; i++) navs[i].onclick = function () { showScreen(this.getAttribute('data-screen')); };
   $('logoutBtn').onclick = logout;
 
-  $('setupBtn').onclick = function () {
-    var p1 = $('setupPin1').value.trim(), p2 = $('setupPin2').value.trim();
-    if (!/^\d{4,6}$/.test(p1)) { toast('PIN must be 4-6 digits', true); return; }
-    if (p1 !== p2) { toast('PINs do not match', true); return; }
-    var salt = String(Date.now()) + Math.random().toString(16).slice(2);
-    hashPin(p1, salt).then(function (h) {
-      save(LS.settings, { adminPinHash: h, salt: salt, pricesConfirmed: false, demo: false });
-      toast('Admin PIN created. Now add staff in Admin tab.');
-      adminUnlocked = true;
-      save(LS.session, { staffId: null, admin: true, at: Date.now() });
-      enterApp(); showScreen('screen-admin');
-    });
-  };
   $('loginBtn').onclick = doLogin;
-  $('loginPin').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
-  $('adminLink').onclick = function () { askPin('admin', null); };
+  $('loginPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+  $('demoLink').onclick = function () {
+    loadDemo();
+    save(LS.session, { role: 'staff', fullName: 'Demo', demo: true, at: Date.now() });
+    refreshBanners(); enterApp(); toast('Demo preview - sample products only');
+  };
 
   $('startCamBtn').onclick = startScanner;
   $('manualGo').onclick = function () {
@@ -555,58 +637,75 @@ function bind() {
     if (sp === null || !$('npName').value.trim()) { toast('Name and valid selling price required', true); return; }
     prods[id] = { id: id, name: $('npName').value.trim(), category: $('npCat').value.trim(), pack: $('npPack').value.trim(), origPaise: parseMoneyToPaise($('npOrig').value), sellPaise: sp, active: true };
     save(LS.products, prods);
+    if (sb && !isDemoSession()) {
+      sb.from('products').insert(productToRow(prods[id])).then(function (r) {
+        if (r.error) toast('Cloud save failed: ' + r.error.message, true);
+      });
+    }
     ['npId', 'npName', 'npCat', 'npPack', 'npOrig', 'npSell'].forEach(function (x) { $(x).value = ''; });
     renderAdminProducts(); toast('Product added');
   };
 
   $('nsAdd').onclick = function () {
-    var name = $('nsName').value.trim(), pin = $('nsPin').value.trim();
-    if (!name || !/^\d{4,6}$/.test(pin)) { toast('Name and 4-6 digit PIN required', true); return; }
-    var s = getSettings();
-    hashPin(pin, s.salt).then(function (h) {
-      var all = getStaff();
-      all.push({ id: 'st' + Date.now(), name: name, pinHash: h, active: true });
-      save(LS.staff, all);
-      $('nsName').value = ''; $('nsPin').value = '';
-      renderStaffAdmin(); toast('Staff added');
+    var name = $('nsName').value.trim(), email = $('nsEmail').value.trim(), pass = $('nsPass').value;
+    if (!name || !email || pass.length < 6) { toast('Staff name, email and password (min 6 chars) required', true); return; }
+    if (!sb) { toast('Backend not loaded - check connection', true); return; }
+    sb.rpc('admin_create_staff_user', { p_email: email, p_password: pass, p_full_name: name, p_role: 'staff' }).then(function (r) {
+      if (r.error) { toast('Could not add staff: ' + r.error.message, true); return; }
+      $('nsName').value = ''; $('nsEmail').value = ''; $('nsPass').value = '';
+      renderStaffAdmin(); toast('Staff account created - share the email + password with them');
     });
   };
 
   $('priceConfirmBtn').onclick = function () {
     var s = getSettings();
-    s.pricesConfirmed = !s.pricesConfirmed;
-    save(LS.settings, s);
-    refreshBanners(); renderAdmin();
+    var next = !s.pricesConfirmed;
+    var done = function () { refreshBanners(); renderAdmin(); };
+    if (sb && !isDemoSession()) {
+      writeCatalogStatus({ prices_unconfirmed: !next, confirmed_at: next ? new Date().toISOString() : null }).then(done).catch(function (e) {
+        toast('Save failed: ' + (e && e.message ? e.message : String(e)), true);
+      });
+    } else {
+      s.pricesConfirmed = next; save(LS.settings, s); done();
+    }
   };
 
   $('apChange').onclick = function () {
-    var s = getSettings();
-    hashPin($('apOld').value.trim(), s.salt).then(function (h) {
-      if (h !== s.adminPinHash) { toast('Current PIN wrong', true); return; }
-      var np = $('apNew').value.trim();
-      if (!/^\d{4,6}$/.test(np)) { toast('New PIN must be 4-6 digits', true); return; }
-      hashPin(np, s.salt).then(function (h2) {
-        s.adminPinHash = h2; save(LS.settings, s);
-        $('apOld').value = ''; $('apNew').value = '';
-        toast('Admin PIN changed');
-      });
+    var np = $('apNew').value;
+    if (np.length < 6) { toast('New password must be at least 6 characters', true); return; }
+    if (!sb) { toast('Backend not loaded - check connection', true); return; }
+    sb.auth.updateUser({ password: np }).then(function (r) {
+      if (r.error) { toast('Password change failed: ' + r.error.message, true); return; }
+      $('apNew').value = ''; toast('Password changed');
     });
   };
 
   $('clearAllBtn').onclick = function () {
-    if (confirm('Erase ALL data (catalog, staff, bill, PINs) on this device?')) {
+    if (confirm('Clear cached data (catalog copy, current bill, login session) on THIS device? Cloud data stays safe.')) {
       Object.keys(LS).forEach(function (k) { localStorage.removeItem(LS[k]); });
-      location.reload();
+      signOutAll().then(function () { location.reload(); });
     }
   };
 }
 
 document.addEventListener('DOMContentLoaded', function () {
   bind();
-  var sess = load(LS.session, null);
-  if (sess && (sess.staffId || sess.admin) && getSettings()) enterApp();
-  else { showScreen('screen-login'); renderLogin(); }
   renderBillBadge(); refreshBanners();
+  var sess = sessInfo();
+  if (sess && sess.demo) { enterApp(); }
+  else if (sess && sb) {
+    sb.auth.getSession().then(function (r) {
+      if (r.data && r.data.session) {
+        enterApp();
+        syncProducts().then(loadCatalogStatus).then(function () { refreshBanners(); renderCatalog(); renderBill(); }).catch(function () { });
+      } else {
+        localStorage.removeItem(LS.session);
+        showScreen('screen-login'); renderLogin();
+      }
+    }).catch(function () {
+      enterApp(); // offline: cached catalog + bill keep working
+    });
+  } else { showScreen('screen-login'); renderLogin(); }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () { });
 });
 
